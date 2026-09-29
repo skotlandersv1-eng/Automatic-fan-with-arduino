@@ -1,0 +1,687 @@
+<!-- ... existing code ... -->
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Skema Interaktif Kipas Otomatis Arduino (DHT11 + PIR)</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        @keyframes spin-fan {
+            from { transform: rotate(0deg); }
+            to { transform: rotate(360deg); }
+        }
+        .fan-spinning {
+            animation: spin-fan 0.35s linear infinite;
+        }
+        .pulse-wire {
+            stroke-dasharray: 6;
+            animation: dash 0.8s linear infinite;
+        }
+        @keyframes dash {
+            to { stroke-dashoffset: -12; }
+        }
+        @keyframes airflow {
+            0% { opacity: 0; transform: translateX(0) scaleY(0.8); }
+            50% { opacity: 0.8; }
+            100% { opacity: 0; transform: translateX(40px) scaleY(1.2); }
+        }
+        .wind-particle {
+            animation: airflow 1.2s ease-out infinite;
+        }
+        body, header, div, table, pre {
+            transition: background-color 0.3s ease, border-color 0.3s ease, color 0.3s ease;
+        }
+
+        /* Light Theme Overrides */
+        body.light-theme {
+            background: linear-gradient(to bottom right, #f8fafc, #f1f5f9, #e2e8f0) !important;
+            color: #0f172a !important;
+        }
+        body.light-theme header {
+            background-color: rgba(255, 255, 255, 0.85) !important;
+            border-color: #cbd5e1 !important;
+        }
+        body.light-theme h1 {
+            background: linear-gradient(to right, #0f172a, #334155, #475569) !important;
+            -webkit-background-clip: text !important;
+            color: transparent !important;
+        }
+        body.light-theme .theme-card {
+            background-color: rgba(255, 255, 255, 0.85) !important;
+            border-color: #cbd5e1 !important;
+            box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.05), 0 8px 10px -6px rgba(0, 0, 0, 0.05) !important;
+        }
+        body.light-theme .theme-card-sub {
+            background-color: #f1f5f9 !important;
+            border-color: #cbd5e1 !important;
+        }
+        body.light-theme .theme-text-primary {
+            color: #0f172a !important;
+        }
+        body.light-theme .theme-text-muted {
+            color: #475569 !important;
+        }
+        body.light-theme table thead {
+            background-color: #e2e8f0 !important;
+            color: #334155 !important;
+        }
+        body.light-theme table tbody {
+            background-color: #ffffff !important;
+        }
+        body.light-theme table tr:hover {
+            background-color: #f1f5f9 !important;
+        }
+
+        /* Custom sleek scrollbar for serial monitor */
+        ::-webkit-scrollbar {
+            width: 6px;
+            height: 6px;
+        }
+        ::-webkit-scrollbar-track {
+            background: rgba(15, 23, 42, 0.6);
+            border-radius: 8px;
+        }
+        ::-webkit-scrollbar-thumb {
+            background: #334155;
+            border-radius: 8px;
+        }
+        ::-webkit-scrollbar-thumb:hover {
+            background: #475569;
+        }
+    </style>
+</head>
+<body class="bg-gradient-to-br from-slate-950 via-slate-900 to-slate-950 text-slate-100 min-h-screen font-sans flex flex-col antialiased selection:bg-cyan-500 selection:text-white">
+
+    <!-- Toast Notification Container -->
+    <div id="toast-container" class="fixed top-5 right-5 z-50 flex flex-col gap-2 pointer-events-none"></div>
+
+    <!-- Header -->
+    <header class="bg-slate-900/80 backdrop-blur-md border-b border-slate-800/80 sticky top-0 z-40 transition-all duration-300">
+        <div class="max-w-7xl mx-auto px-4 py-3.5 sm:px-6 flex flex-col sm:flex-row justify-between items-center gap-4">
+            <div class="flex items-center gap-3.5">
+                <div class="p-2.5 bg-gradient-to-tr from-cyan-600 to-blue-500 rounded-xl shadow-lg shadow-cyan-500/20 ring-1 ring-white/20">
+                    <svg class="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"/>
+                    </svg>
+                </div>
+                <div>
+                    <h1 class="text-xl font-bold bg-gradient-to-r from-white via-slate-200 to-slate-400 bg-clip-text text-transparent">Simulator Kipas Otomatis</h1>
+                    <p class="text-xs text-slate-400 flex items-center gap-1.5 mt-0.5">
+                        <span class="inline-block w-1.5 h-1.5 rounded-full bg-cyan-400"></span>
+                        Arduino Uno • DHT11 • Sensor PIR • Modul Relay
+                    </p>
+                </div>
+            </div>
+            <div class="flex items-center gap-3">
+                <button id="theme-toggle-btn" onclick="toggleTheme()" class="px-3 py-1.5 rounded-xl bg-slate-800/80 hover:bg-slate-700/80 text-slate-300 hover:text-white border border-slate-700/80 transition-all duration-200 flex items-center gap-2 text-xs font-semibold shadow-sm cursor-pointer active:scale-95">
+                    <svg id="theme-icon-sun" class="w-4 h-4 hidden text-amber-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 3v1m0 16v1m9-9h-1M4 12H3m15.364 6.364l-.707-.707M6.343 6.343l-.707-.707m12.728 0l-.707.707M6.343 17.657l-.707.707M16 12a4 4 0 11-8 0 4 4 0 018 0z"/></svg>
+                    <svg id="theme-icon-moon" class="w-4 h-4 text-cyan-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M20.354 15.354A9 9 0 018.646 3.646 9.003 9.003 0 0012 21a9.003 9.003 0 008.354-5.646z"/></svg>
+                    <span id="theme-text">Mode Terang</span>
+                </button>
+
+                <span id="system-status-badge" class="px-3.5 py-1.5 rounded-full text-xs font-medium bg-emerald-500/10 text-emerald-400 border border-emerald-500/30 shadow-sm shadow-emerald-500/10 flex items-center gap-2">
+                    <span class="relative flex h-2 w-2">
+                      <span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+                      <span class="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
+                    </span>
+                    Sistem Siap
+                </span>
+            </div>
+        </div>
+    </header>
+
+    <!-- Main Content -->
+    <main class="max-w-7xl mx-auto p-4 sm:p-6 flex-1 w-full grid grid-cols-1 lg:grid-cols-12 gap-6">
+
+        <!-- Left Column: Interactive Visualizer & Schematic (8 Cols) -->
+        <div class="lg:col-span-8 flex flex-col gap-6">
+            
+            <!-- Interactive Visual Diagram -->
+            <div class="theme-card bg-slate-900/60 backdrop-blur-xl rounded-2xl border border-slate-800/80 p-5 sm:p-6 shadow-2xl flex flex-col justify-between relative overflow-hidden transition-all duration-300">
+                <!-- Glowing background accent -->
+                <div class="absolute -top-24 -right-24 w-60 h-60 bg-cyan-500/10 rounded-full blur-3xl pointer-events-none"></div>
+                
+                <div class="flex justify-between items-center mb-4 relative z-10">
+                    <h2 class="theme-text-primary text-lg font-semibold text-slate-100 flex items-center gap-2.5">
+                        <div class="p-1.5 rounded-lg bg-blue-500/10 border border-blue-500/20 text-blue-400">
+                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 3v2m6-2v2M9 19v2m6-2v2M5 9H3m2 6H3m18-6h-2m2 6h-2M7 19h10a2 2 0 002-2V7a2 2 0 00-2-2H7a2 2 0 00-2 2v10a2 2 0 002 2zM9 9h6v6H9V9z"/>
+                            </svg>
+                        </div>
+                        Diagram Rangkaian & Alur Sinyal
+                    </h2>
+                    <span class="text-[11px] font-medium tracking-wide text-cyan-300 bg-cyan-950/80 border border-cyan-800/50 px-2.5 py-1 rounded-lg shadow-inner">
+                        LIVE SIMULATOR
+                    </span>
+                </div>
+
+                <!-- Canvas/SVG Circuit Simulation -->
+                <div class="relative w-full aspect-[16/9] bg-slate-950/80 backdrop-blur-inner rounded-xl border border-slate-800/80 p-4 flex items-center justify-center overflow-hidden shadow-inner group">
+                    
+                    <svg class="w-full h-full text-slate-300" viewBox="0 0 800 450" fill="none" xmlns="http://www.w3.org/2000/svg">
+                        <defs>
+                            <filter id="glow-cyan" x="-20%" y="-20%" width="140%" height="140%">
+                                <feGaussianBlur stdDeviation="4" result="blur" />
+                                <feComposite in="SourceGraphic" in2="blur" operator="over"/>
+                            </filter>
+                            <filter id="glow-emerald" x="-20%" y="-20%" width="140%" height="140%">
+                                <feGaussianBlur stdDeviation="5" result="blur" />
+                                <feComposite in="SourceGraphic" in2="blur" operator="over"/>
+                            </filter>
+                        </defs>
+
+                        <!-- Cable Connections Wire Layer -->
+                        <!-- 5V VCC Rail Red -->
+                        <path d="M 280 260 L 280 340 L 150 340 L 150 140 L 600 140 L 600 240" stroke="#f43f5e" stroke-width="3" stroke-linecap="round" opacity="0.5"/>
+                        
+                        <!-- GND Rail Black -->
+                        <path d="M 290 260 L 290 350 L 170 350 L 170 150 L 620 150 L 620 240" stroke="#475569" stroke-width="3" stroke-linecap="round" opacity="0.5"/>
+
+                        <!-- DHT11 Data Pin 2 (Cyan) -->
+                        <path id="wire-dht" d="M 190 140 L 190 220 L 330 220" stroke="#06b6d4" stroke-width="3" stroke-dasharray="4" />
+                        
+                        <!-- PIR Data Pin 3 (Yellow) -->
+                        <path id="wire-pir" d="M 640 240 L 640 180 L 340 180 L 340 220" stroke="#eab308" stroke-width="3" stroke-dasharray="4" />
+
+                        <!-- Relay Control Pin 4 (Purple) -->
+                        <path id="wire-relay" d="M 370 220 L 460 220 L 460 300 L 510 300" stroke="#c084fc" stroke-width="3" stroke-dasharray="4" />
+
+                        <!-- Relay to Fan Motor (Green Power Line) -->
+                        <path id="wire-fan" d="M 590 300 L 680 300" stroke="#475569" stroke-width="4" stroke-dasharray="4" />
+
+                        <!-- Wind Flow Particles (Visible when active) -->
+                        <g id="wind-particles" class="hidden">
+                            <path class="wind-particle" d="M 740 270 Q 760 265 780 270" stroke="#38bdf8" stroke-width="2.5" stroke-linecap="round"/>
+                            <path class="wind-particle" style="animation-delay: 0.3s;" d="M 740 290 Q 765 290 785 285" stroke="#38bdf8" stroke-width="3" stroke-linecap="round"/>
+                            <path class="wind-particle" style="animation-delay: 0.6s;" d="M 740 310 Q 760 315 780 310" stroke="#38bdf8" stroke-width="2.5" stroke-linecap="round"/>
+                        </g>
+
+                        <!-- COMPONENTS DRAWING -->
+
+                        <!-- Arduino Uno Board -->
+                        <g transform="translate(260, 200)" class="transition-transform duration-300">
+                            <rect width="160" height="90" rx="10" fill="#0284c7" stroke="#38bdf8" stroke-width="2" class="shadow-lg"/>
+                            <text x="80" y="42" font-size="13" font-weight="800" fill="#ffffff" letter-spacing="0.5" text-anchor="middle">ARDUINO UNO</text>
+                            <text x="80" y="62" font-size="9" font-weight="600" fill="#bae6fd" text-anchor="middle">ATmega328P</text>
+                            
+                            <!-- Header Pins Top/Bottom -->
+                            <rect x="10" y="5" width="140" height="10" rx="3" fill="#0f172a"/>
+                            <rect x="10" y="75" width="140" height="10" rx="3" fill="#0f172a"/>
+                            <text x="32" y="12" font-size="7" font-weight="bold" fill="#38bdf8">D2 D3 D4</text>
+                            <text x="32" y="82" font-size="7" font-weight="bold" fill="#f43f5e">5V GND</text>
+                        </g>
+
+                        <!-- Sensor DHT11 -->
+                        <g transform="translate(120, 50)">
+                            <rect width="90" height="90" rx="12" fill="#0369a1" stroke="#38bdf8" stroke-width="2"/>
+                            <!-- Vent Grill -->
+                            <line x1="20" y1="20" x2="70" y2="20" stroke="#0284c7" stroke-width="4" stroke-linecap="round"/>
+                            <line x1="20" y1="35" x2="70" y2="35" stroke="#0284c7" stroke-width="4" stroke-linecap="round"/>
+                            <line x1="20" y1="50" x2="70" y2="50" stroke="#0284c7" stroke-width="4" stroke-linecap="round"/>
+                            <text x="45" y="73" font-size="11" font-weight="800" fill="#ffffff" text-anchor="middle">DHT11</text>
+                            <text x="45" y="84" font-size="8" fill="#bae6fd" text-anchor="middle">Suhu & Humid</text>
+                        </g>
+
+                        <!-- Sensor PIR -->
+                        <g transform="translate(570, 50)">
+                            <rect width="100" height="90" rx="12" fill="#15803d" stroke="#4ade80" stroke-width="2"/>
+                            <!-- Dome -->
+                            <circle id="pir-dome" cx="50" cy="40" r="26" fill="#f8fafc" opacity="0.9" stroke="#cbd5e1" stroke-width="2"/>
+                            <text x="50" y="79" font-size="11" font-weight="800" fill="#ffffff" text-anchor="middle">SENSOR PIR</text>
+                            <text x="50" y="89" font-size="8" fill="#bbf7d0" text-anchor="middle">Deteksi Gerak</text>
+                        </g>
+
+                        <!-- Modul Relay -->
+                        <g transform="translate(500, 260)">
+                            <rect width="90" height="80" rx="10" fill="#1e293b" stroke="#475569" stroke-width="2"/>
+                            <rect x="15" y="15" width="60" height="40" rx="6" fill="#2563eb"/>
+                            <text x="45" y="38" font-size="10" font-weight="800" fill="#ffffff" text-anchor="middle">RELAY 5V</text>
+                            <text x="45" y="70" font-size="8" font-weight="600" fill="#94a3b8" text-anchor="middle">Sakelar Otomatis</text>
+                            <!-- Relay LED -->
+                            <circle id="relay-led" cx="75" cy="25" r="4.5" fill="#64748b" class="transition-all duration-300"/>
+                        </g>
+
+                        <!-- Fan Motor -->
+                        <g transform="translate(680, 250)">
+                            <!-- Fan Outer Glow Halo -->
+                            <circle id="fan-halo" cx="40" cy="40" r="42" fill="none" stroke="#38bdf8" stroke-width="2" opacity="0" class="transition-opacity duration-300" filter="url(#glow-cyan)"/>
+                            <circle cx="40" cy="40" r="36" fill="#1e293b" stroke="#64748b" stroke-width="3"/>
+                            
+                            <!-- Fan Blades Group for Animation -->
+                            <g id="fan-blades" transform-origin="40 40">
+                                <path d="M 40 40 Q 30 15 40 5 Q 50 15 40 40 Z" fill="#38bdf8"/>
+                                <path d="M 40 40 Q 65 30 75 40 Q 65 50 40 40 Z" fill="#38bdf8"/>
+                                <path d="M 40 40 Q 50 65 40 75 Q 30 65 40 40 Z" fill="#38bdf8"/>
+                                <path d="M 40 40 Q 15 50 5 40 Q 15 30 40 40 Z" fill="#38bdf8"/>
+                                <circle cx="40" cy="40" r="8" fill="#0284c7"/>
+                            </g>
+                            <text x="40" y="93" font-size="10" font-weight="800" fill="#ffffff" text-anchor="middle">KIPAS DC</text>
+                        </g>
+
+                    </svg>
+
+                </div>
+
+                <!-- Live Circuit Legend -->
+                <div class="mt-4 flex flex-wrap items-center justify-between gap-3 text-xs text-slate-400 border-t border-slate-800/80 pt-3.5">
+                    <div class="flex items-center gap-2 bg-slate-950/50 px-2.5 py-1 rounded-lg border border-slate-800/60">
+                        <span class="w-2.5 h-2.5 rounded-full bg-cyan-400 shadow-sm shadow-cyan-400/50"></span>
+                        <span class="font-mono text-slate-300">Pin D2</span> <span class="text-slate-500">(DHT11)</span>
+                    </div>
+                    <div class="flex items-center gap-2 bg-slate-950/50 px-2.5 py-1 rounded-lg border border-slate-800/60">
+                        <span class="w-2.5 h-2.5 rounded-full bg-yellow-400 shadow-sm shadow-yellow-400/50"></span>
+                        <span class="font-mono text-slate-300">Pin D3</span> <span class="text-slate-500">(PIR)</span>
+                    </div>
+                    <div class="flex items-center gap-2 bg-slate-950/50 px-2.5 py-1 rounded-lg border border-slate-800/60">
+                        <span class="w-2.5 h-2.5 rounded-full bg-purple-400 shadow-sm shadow-purple-400/50"></span>
+                        <span class="font-mono text-slate-300">Pin D4</span> <span class="text-slate-500">(Relay)</span>
+                    </div>
+                    <div class="flex items-center gap-2 bg-slate-950/50 px-2.5 py-1 rounded-lg border border-slate-800/60">
+                        <span class="w-2.5 h-2.5 rounded-full bg-rose-500 shadow-sm shadow-rose-500/50"></span>
+                        <span class="font-mono text-slate-300">VCC (+5V)</span>
+                    </div>
+                    <div class="flex items-center gap-2 bg-slate-950/50 px-2.5 py-1 rounded-lg border border-slate-800/60">
+                        <span class="w-2.5 h-2.5 rounded-full bg-slate-500"></span>
+                        <span class="font-mono text-slate-300">GND</span>
+                    </div>
+                </div>
+
+            </div>
+
+            <!-- Tabbed Logic & Code View -->
+            <div class="theme-card bg-slate-900/60 backdrop-blur-xl rounded-2xl border border-slate-800/80 p-5 shadow-2xl transition-all duration-300">
+                <div class="flex border-b border-slate-800/80 mb-4 gap-6">
+                    <button id="tab-btn-wiring" onclick="switchTab('wiring')" class="pb-3 font-semibold text-sm text-cyan-400 border-b-2 border-cyan-400 transition-all duration-200 flex items-center gap-2 cursor-pointer">
+                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 10h16M4 14h16M4 18h16"/></svg>
+                        Tabel Perkabelan (Pinout)
+                    </button>
+                    <button id="tab-btn-code" onclick="switchTab('code')" class="pb-3 font-semibold text-sm text-slate-400 border-b-2 border-transparent hover:text-slate-200 transition-all duration-200 flex items-center gap-2 cursor-pointer">
+                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 20l4-16m4 4l4 4-4 4M6 16l-4-4 4-4"/></svg>
+                        Kode Arduino (.ino)
+                    </button>
+                </div>
+
+                <!-- Tab 1: Wiring Table -->
+                <div id="tab-content-wiring" class="space-y-3">
+                    <div class="overflow-x-auto rounded-xl border border-slate-800/80">
+                        <table class="w-full text-left text-xs sm:text-sm text-slate-300">
+                            <thead class="bg-slate-950/80 text-slate-400 uppercase font-semibold text-[11px] tracking-wider">
+                                <tr>
+                                    <th class="p-3.5">Komponen</th>
+                                    <th class="p-3.5">Pin Komponen</th>
+                                    <th class="p-3.5">Terhubung Ke (Arduino / Power)</th>
+                                </tr>
+                            </thead>
+                            <tbody class="divide-y divide-slate-800/60 bg-slate-900/30">
+                                <tr class="hover:bg-slate-800/30 transition-colors">
+                                    <td class="p-3.5 font-semibold text-cyan-400 flex items-center gap-2">
+                                        <span class="w-2 h-2 rounded-full bg-cyan-400"></span> Sensor DHT11
+                                    </td>
+                                    <td class="p-3.5 font-mono text-slate-300">VCC, DATA, GND</td>
+                                    <td class="p-3.5">5V, <span class="font-mono text-cyan-300 bg-cyan-950 px-2 py-0.5 rounded border border-cyan-800/50">Digital Pin 2</span>, GND</td>
+                                </tr>
+                                <tr class="hover:bg-slate-800/30 transition-colors">
+                                    <td class="p-3.5 font-semibold text-yellow-400 flex items-center gap-2">
+                                        <span class="w-2 h-2 rounded-full bg-yellow-400"></span> Sensor PIR
+                                    </td>
+                                    <td class="p-3.5 font-mono text-slate-300">VCC, OUT, GND</td>
+                                    <td class="p-3.5">5V, <span class="font-mono text-yellow-300 bg-yellow-950 px-2 py-0.5 rounded border border-yellow-800/50">Digital Pin 3</span>, GND</td>
+                                </tr>
+                                <tr class="hover:bg-slate-800/30 transition-colors">
+                                    <td class="p-3.5 font-semibold text-purple-400 flex items-center gap-2">
+                                        <span class="w-2 h-2 rounded-full bg-purple-400"></span> Modul Relay 5V
+                                    </td>
+                                    <td class="p-3.5 font-mono text-slate-300">VCC, IN, GND</td>
+                                    <td class="p-3.5">5V, <span class="font-mono text-purple-300 bg-purple-950 px-2 py-0.5 rounded border border-purple-800/50">Digital Pin 4</span>, GND</td>
+                                </tr>
+                                <tr class="hover:bg-slate-800/30 transition-colors">
+                                    <td class="p-3.5 font-semibold text-emerald-400 flex items-center gap-2">
+                                        <span class="w-2 h-2 rounded-full bg-emerald-400"></span> Kipas DC / Motor
+                                    </td>
+                                    <td class="p-3.5 font-mono text-slate-300">Kabel (+) & (-)</td>
+                                    <td class="p-3.5">Terminal NO Relay & Catu Daya Eksternal / 5V</td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+
+                <!-- Tab 2: Arduino Code -->
+                <div id="tab-content-code" class="hidden relative">
+                    <button onclick="copyCode()" class="absolute top-3 right-3 px-3.5 py-1.5 bg-slate-800 hover:bg-slate-700 active:scale-95 text-slate-200 text-xs font-medium rounded-lg border border-slate-700/80 shadow-md flex items-center gap-1.5 transition-all duration-200">
+                        <svg class="w-3.5 h-3.5 text-cyan-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z"/></svg>
+                        Salin Kode
+                    </button>
+                    <pre class="bg-slate-950 p-4 sm:p-5 rounded-xl text-xs font-mono text-emerald-400 overflow-x-auto border border-slate-800/90 leading-relaxed shadow-inner"><code id="code-block">#include &lt;DHT.h&gt;
+
+// Pin Definition
+#define DHTPIN 2
+#define DHTTYPE DHT11
+#define PIRPIN 3
+#define RELAYPIN 4
+
+// Ambang Batas Suhu (Derajat Celsius)
+const float AMBANG_SUHU = 28.0;
+
+DHT dht(DHTPIN, DHTTYPE);
+
+void setup() {
+  Serial.begin(9600);
+  dht.begin();
+  
+  pinMode(PIRPIN, INPUT);
+  pinMode(RELAYPIN, OUTPUT);
+  
+  // Standby Relay Off (LOW)
+  digitalWrite(RELAYPIN, LOW);
+  
+  Serial.println("Sistem Kipas Otomatis Siap...");
+}
+
+void loop() {
+  // Membaca data sensor
+  float suhu = dht.readTemperature();
+  int adaOrang = digitalRead(PIRPIN);
+
+  if (isnan(suhu)) {
+    Serial.println("Gagal membaca dari sensor DHT11!");
+    delay(2000);
+    return;
+  }
+
+  // Log ke Serial Monitor
+  Serial.print("Suhu: ");
+  Serial.print(suhu);
+  Serial.print(" °C | Gerakan: ");
+  Serial.println(adaOrang == HIGH ? "TERDETEKSI" : "TIDAK ADA");
+
+  // Logika Kontrol Kipas: (PIR HIGH && SUHU >= AMBANG)
+  if (adaOrang == HIGH && suhu >= AMBANG_SUHU) {
+    digitalWrite(RELAYPIN, HIGH); // Nyalakan Relay (Kipas ON)
+    Serial.println("Status Kipas: ON (Ada orang & Suhu Panas)");
+  } else {
+    digitalWrite(RELAYPIN, LOW);  // Matikan Relay (Kipas OFF)
+    Serial.println("Status Kipas: OFF");
+  }
+
+  delay(1000);
+}</code></pre>
+                </div>
+            </div>
+
+        </div>
+
+        <!-- Right Column: Control Panel & Live Telemetry (4 Cols) -->
+        <div class="lg:col-span-4 flex flex-col gap-6">
+
+            <!-- Control Panel (Simulation Controls) -->
+            <div class="theme-card bg-slate-900/60 backdrop-blur-xl rounded-2xl border border-slate-800/80 p-5 sm:p-6 shadow-2xl flex flex-col gap-5 transition-all duration-300">
+                <h2 class="theme-text-primary text-lg font-semibold text-slate-100 flex items-center gap-2.5 border-b border-slate-800/80 pb-3.5">
+                    <div class="p-1.5 rounded-lg bg-emerald-500/10 border border-emerald-500/20 text-emerald-400">
+                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6V4m0 2a2 2 0 100 4m0-4a2 2 0 110 4m-6 8a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4m6 6v10m6-2a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4"/>
+                        </svg>
+                    </div>
+                    Panel Kontrol Simulasi
+                </h2>
+
+                <!-- Temperature Slider -->
+                <div class="theme-card-sub space-y-2.5 bg-slate-950/40 p-3.5 rounded-xl border border-slate-800/60">
+                    <div class="flex justify-between items-center text-sm">
+                        <label for="temp-slider" class="theme-text-primary text-slate-300 font-medium text-xs sm:text-sm">Suhu DHT11:</label>
+                        <span id="temp-val" class="font-mono font-bold text-cyan-400 bg-cyan-950/80 border border-cyan-800/50 px-2 py-0.5 rounded text-sm">26.0 °C</span>
+                    </div>
+                    <input type="range" id="temp-slider" min="15" max="40" step="0.5" value="26.0" 
+                           class="w-full h-2 bg-slate-800 rounded-lg appearance-none cursor-pointer accent-cyan-400 transition-all duration-150"
+                           oninput="updateSimulation()">
+                    <div class="flex justify-between text-[10px] theme-text-muted text-slate-500 font-medium">
+                        <span>15°C (Dingin)</span>
+                        <span>40°C (Panas)</span>
+                    </div>
+                </div>
+
+                <!-- Temperature Threshold Slider -->
+                <div class="theme-card-sub space-y-2.5 bg-slate-950/40 p-3.5 rounded-xl border border-slate-800/60">
+                    <div class="flex justify-between items-center text-sm">
+                        <label for="threshold-slider" class="theme-text-primary text-slate-300 font-medium text-xs sm:text-sm">Batas Kipas ON:</label>
+                        <span id="threshold-val" class="font-mono font-bold text-amber-400 bg-amber-950/80 border border-amber-800/50 px-2 py-0.5 rounded text-sm">28.0 °C</span>
+                    </div>
+                    <input type="range" id="threshold-slider" min="20" max="35" step="0.5" value="28.0" 
+                           class="w-full h-2 bg-slate-800 rounded-lg appearance-none cursor-pointer accent-amber-400 transition-all duration-150"
+                           oninput="updateSimulation()">
+                </div>
+
+                <!-- PIR Motion Toggle -->
+                <div class="theme-card-sub flex items-center justify-between p-3.5 bg-slate-950/40 rounded-xl border border-slate-800/60 transition-all duration-200">
+                    <div class="flex flex-col">
+                        <span class="theme-text-primary text-xs sm:text-sm font-semibold text-slate-200">Sensor PIR (Kehadiran)</span>
+                        <span id="pir-desc" class="text-[11px] text-slate-400">Tidak ada gerakan</span>
+                    </div>
+                    <label class="relative inline-flex items-center cursor-pointer">
+                        <input type="checkbox" id="pir-toggle" class="sr-only peer" onchange="updateSimulation()">
+                        <div class="w-11 h-6 bg-slate-800 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-emerald-500 shadow-inner"></div>
+                    </label>
+                </div>
+
+                <!-- Logic Summary Callout -->
+                <div class="theme-card-sub p-4 bg-slate-950/80 rounded-xl border border-slate-800/80 text-xs space-y-2 shadow-inner">
+                    <div class="font-semibold theme-text-primary text-slate-300 text-xs tracking-wider uppercase border-b border-slate-800/80 pb-1.5 flex items-center justify-between">
+                        <span>Evaluasi Logika</span>
+                        <span class="text-[10px] theme-text-muted text-slate-500 font-normal">AND Gate</span>
+                    </div>
+                    <div class="flex items-center justify-between theme-text-muted text-slate-400">
+                        <span>1. Deteksi Gerak (PIR):</span>
+                        <span id="rule-pir" class="font-mono font-bold text-rose-400 bg-rose-950/50 px-1.5 py-0.5 rounded border border-rose-800/40">TIDAK</span>
+                    </div>
+                    <div class="flex items-center justify-between theme-text-muted text-slate-400">
+                        <span>2. Suhu &ge; Batas Temp:</span>
+                        <span id="rule-temp" class="font-mono font-bold text-rose-400 bg-rose-950/50 px-1.5 py-0.5 rounded border border-rose-800/40">TIDAK</span>
+                    </div>
+                    <div class="pt-2 border-t border-slate-800/80 flex items-center justify-between font-semibold">
+                        <span class="theme-text-primary text-slate-200">Output Kipas:</span>
+                        <span id="rule-output" class="text-slate-400 font-bold font-mono">OFF</span>
+                    </div>
+                </div>
+
+            </div>
+
+            <!-- Serial Monitor Simulation -->
+            <div class="theme-card bg-slate-900/60 backdrop-blur-xl rounded-2xl border border-slate-800/80 p-5 shadow-2xl flex flex-col flex-1">
+                <div class="flex justify-between items-center mb-3">
+                    <h2 class="text-xs font-bold uppercase tracking-wider theme-text-muted text-slate-400 flex items-center gap-2">
+                        <svg class="w-4 h-4 text-emerald-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 9l3 3-3 3m5 0h3M5 20h14a2 2 0 002-2V6a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"/>
+                        </svg>
+                        Serial Monitor (9600 baud)
+                    </h2>
+                    <span class="flex h-2 w-2 relative">
+                        <span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+                        <span class="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
+                    </span>
+                </div>
+                <div id="serial-output" class="bg-slate-950 font-mono text-[11px] text-emerald-400 p-3.5 rounded-xl flex-1 min-h-[160px] max-h-[220px] overflow-y-auto space-y-1.5 border border-slate-900 shadow-inner">
+                    <div>[SYSTEM INITIALIZED]</div>
+                    <div>Sistem Kipas Otomatis Siap...</div>
+                </div>
+            </div>
+
+        </div>
+
+    </main>
+
+    <!-- Script Logic -->
+    <script>
+        let isLightMode = false;
+
+        function toggleTheme() {
+            isLightMode = !isLightMode;
+            const body = document.body;
+            const sunIcon = document.getElementById('theme-icon-sun');
+            const moonIcon = document.getElementById('theme-icon-moon');
+            const themeText = document.getElementById('theme-text');
+            const themeBtn = document.getElementById('theme-toggle-btn');
+
+            if (isLightMode) {
+                body.classList.add('light-theme');
+                sunIcon.classList.remove('hidden');
+                moonIcon.classList.add('hidden');
+                themeText.innerText = "Mode Gelap";
+                themeBtn.className = "px-3 py-1.5 rounded-xl bg-slate-200 hover:bg-slate-300 text-slate-800 border border-slate-300 transition-all duration-200 flex items-center gap-2 text-xs font-semibold shadow-sm cursor-pointer active:scale-95";
+                showToast('Beralih ke Mode Terang');
+            } else {
+                body.classList.remove('light-theme');
+                sunIcon.classList.add('hidden');
+                moonIcon.classList.remove('hidden');
+                themeText.innerText = "Mode Terang";
+                themeBtn.className = "px-3 py-1.5 rounded-xl bg-slate-800/80 hover:bg-slate-700/80 text-slate-300 hover:text-white border border-slate-700/80 transition-all duration-200 flex items-center gap-2 text-xs font-semibold shadow-sm cursor-pointer active:scale-95";
+                showToast('Beralih ke Mode Gelap');
+            }
+        }
+
+        function showToast(message) {
+            const container = document.getElementById('toast-container');
+            const toast = document.createElement('div');
+            toast.className = "pointer-events-auto bg-slate-800/90 text-slate-100 text-xs font-medium px-4 py-2.5 rounded-xl border border-cyan-500/30 shadow-xl shadow-cyan-500/10 backdrop-blur-md flex items-center gap-2 transform translate-y-2 opacity-0 transition-all duration-300";
+            toast.innerHTML = `
+                <svg class="w-4 h-4 text-cyan-400 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/>
+                </svg>
+                <span>${message}</span>
+            `;
+            container.appendChild(toast);
+
+            requestAnimationFrame(() => {
+                toast.classList.remove('translate-y-2', 'opacity-0');
+            });
+
+            setTimeout(() => {
+                toast.classList.add('opacity-0', 'translate-y-2');
+                setTimeout(() => toast.remove(), 300);
+            }, 2500);
+        }
+
+        function updateSimulation() {
+            const tempVal = parseFloat(document.getElementById('temp-slider').value);
+            const thresholdVal = parseFloat(document.getElementById('threshold-slider').value);
+            const pirVal = document.getElementById('pir-toggle').checked;
+
+            // UI Label Updates
+            document.getElementById('temp-val').innerText = tempVal.toFixed(1) + " °C";
+            document.getElementById('threshold-val').innerText = thresholdVal.toFixed(1) + " °C";
+            document.getElementById('pir-desc').innerText = pirVal ? "Manusia Terdeteksi!" : "Tidak ada gerakan";
+            document.getElementById('pir-desc').className = pirVal ? "text-[11px] text-emerald-400 font-semibold" : "text-[11px] text-slate-400";
+
+            // Conditions
+            const isTempHot = tempVal >= thresholdVal;
+            const isMotion = pirVal;
+            const isFanActive = isTempHot && isMotion;
+
+            // PIR Dome visual effect
+            const pirDome = document.getElementById('pir-dome');
+            if (pirDome) {
+                pirDome.setAttribute('fill', isMotion ? '#86efac' : '#f8fafc');
+            }
+
+            // Update Rule Callout UI
+            const rulePir = document.getElementById('rule-pir');
+            rulePir.innerText = isMotion ? "YA" : "TIDAK";
+            rulePir.className = isMotion 
+                ? "font-mono font-bold text-emerald-400 bg-emerald-950/60 px-1.5 py-0.5 rounded border border-emerald-800/50" 
+                : "font-mono font-bold text-rose-400 bg-rose-950/50 px-1.5 py-0.5 rounded border border-rose-800/40";
+
+            const ruleTemp = document.getElementById('rule-temp');
+            ruleTemp.innerText = isTempHot ? "YA" : "TIDAK";
+            ruleTemp.className = isTempHot 
+                ? "font-mono font-bold text-emerald-400 bg-emerald-950/60 px-1.5 py-0.5 rounded border border-emerald-800/50" 
+                : "font-mono font-bold text-rose-400 bg-rose-950/50 px-1.5 py-0.5 rounded border border-rose-800/40";
+
+            const ruleOutput = document.getElementById('rule-output');
+            ruleOutput.innerText = isFanActive ? "ON (BERPUTAR)" : "OFF";
+            ruleOutput.className = isFanActive 
+                ? "text-emerald-400 font-bold font-mono animate-pulse" 
+                : "text-slate-400 font-bold font-mono";
+
+            // Graphic Elements Updates
+            const fanBlades = document.getElementById('fan-blades');
+            const fanHalo = document.getElementById('fan-halo');
+            const windParticles = document.getElementById('wind-particles');
+            const relayLed = document.getElementById('relay-led');
+            const wireFan = document.getElementById('wire-fan');
+            const wireRelay = document.getElementById('wire-relay');
+            const wirePir = document.getElementById('wire-pir');
+            const wireDht = document.getElementById('wire-dht');
+
+            // Wire Animations
+            wireDht.classList.add('pulse-wire');
+            if (isMotion) {
+                wirePir.classList.add('pulse-wire');
+            } else {
+                wirePir.classList.remove('pulse-wire');
+            }
+
+            if (isFanActive) {
+                fanBlades.classList.add('fan-spinning');
+                fanHalo.style.opacity = '0.8';
+                windParticles.classList.remove('hidden');
+                relayLed.setAttribute('fill', '#22c55e'); // Green LED
+                wireRelay.classList.add('pulse-wire');
+                wireFan.classList.add('pulse-wire');
+                wireFan.setAttribute('stroke', '#10b981');
+            } else {
+                fanBlades.classList.remove('fan-spinning');
+                fanHalo.style.opacity = '0';
+                windParticles.classList.add('hidden');
+                relayLed.setAttribute('fill', '#64748b'); // Off LED
+                wireRelay.classList.remove('pulse-wire');
+                wireFan.classList.remove('pulse-wire');
+                wireFan.setAttribute('stroke', '#475569');
+            }
+
+            // Append Serial Monitor Log
+            logSerial(`Suhu: ${tempVal.toFixed(1)}°C | Gerakan: ${isMotion ? 'YA' : 'TIDAK'} | Fan: ${isFanActive ? 'ON' : 'OFF'}`);
+        }
+
+        function logSerial(text) {
+            const serialBox = document.getElementById('serial-output');
+            const newLog = document.createElement('div');
+            const time = new Date().toLocaleTimeString('id-ID', { hour12: false });
+            newLog.innerText = `[${time}] ${text}`;
+            serialBox.appendChild(newLog);
+
+            // Keep max 25 logs
+            while (serialBox.children.length > 25) {
+                serialBox.removeChild(serialBox.firstChild);
+            }
+
+            serialBox.scrollTop = serialBox.scrollHeight;
+        }
+
+        function switchTab(tab) {
+            const wiringContent = document.getElementById('tab-content-wiring');
+            const codeContent = document.getElementById('tab-content-code');
+            const wiringBtn = document.getElementById('tab-btn-wiring');
+            const codeBtn = document.getElementById('tab-btn-code');
+
+            if (tab === 'wiring') {
+                wiringContent.classList.remove('hidden');
+                codeContent.classList.add('hidden');
+                wiringBtn.className = "pb-3 font-semibold text-sm text-cyan-400 border-b-2 border-cyan-400 transition-all duration-200 flex items-center gap-2";
+                codeBtn.className = "pb-3 font-semibold text-sm text-slate-400 border-b-2 border-transparent hover:text-slate-200 transition-all duration-200 flex items-center gap-2";
+            } else {
+                wiringContent.classList.add('hidden');
+                codeContent.classList.remove('hidden');
+                codeBtn.className = "pb-3 font-semibold text-sm text-cyan-400 border-b-2 border-cyan-400 transition-all duration-200 flex items-center gap-2";
+                wiringBtn.className = "pb-3 font-semibold text-sm text-slate-400 border-b-2 border-transparent hover:text-slate-200 transition-all duration-200 flex items-center gap-2";
+            }
+        }
+
+        function copyCode() {
+            const codeText = document.getElementById('code-block').innerText;
+            document.execCommand('copy');
+            showToast('Kode Arduino berhasil disalin ke clipboard!');
+        }
+
+        // Initialize default simulation state
+        updateSimulation();
+    </script>
+</body>
+</html>
